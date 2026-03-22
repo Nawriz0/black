@@ -3,21 +3,35 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Blackjack — комнаты</title>
+    <title>Blackjack 21 — онлайн-комнаты</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body class="page page--home">
-    <div class="bg-pattern" aria-hidden="true"></div>
-    <main class="shell">
+    <div class="bg-ambient" aria-hidden="true"></div>
+    <div class="bg-grid" aria-hidden="true"></div>
+    <div class="bg-glow bg-glow--1" aria-hidden="true"></div>
+    <div class="bg-glow bg-glow--2" aria-hidden="true"></div>
+
+    <main class="shell shell--home">
       <header class="hero">
-        <p class="eyebrow">Онлайн • в реальном времени</p>
-        <h1 class="hero__title">Blackjack 21</h1>
+        <div class="hero__badge" aria-hidden="true">
+          <span class="hero__suit">♠</span>
+          <span class="hero__suit hero__suit--red">♥</span>
+        </div>
+        <p class="eyebrow">Live • WebSocket</p>
+        <h1 class="hero__title">Blackjack <span class="hero__accent">21</span></h1>
         <p class="hero__lead">
-          Создайте комнату, отправьте код друзьям и сыграйте вместе против дилера.
+          Создайте комнату, отправьте код друзьям и сыграйте вместе против дилера в реальном времени.
         </p>
       </header>
 
-      <section class="panel">
+      <section class="panel glass">
         <label class="field">
           <span class="field__label">Ваше имя</span>
           <input
@@ -31,7 +45,7 @@
         </label>
 
         <div class="actions actions--stack">
-          <button id="btnCreate" class="btn btn--primary" type="button">
+          <button id="btnCreate" class="btn btn--primary btn--lg" type="button">
             Создать комнату
           </button>
         </div>
@@ -45,12 +59,12 @@
             class="input input--mono"
             type="text"
             maxlength="8"
-            placeholder="Например, K7P2M3"
+            placeholder="K7P2M3"
           />
         </label>
 
         <div class="actions actions--stack">
-          <button id="btnJoin" class="btn btn--secondary" type="button">
+          <button id="btnJoin" class="btn btn--gold btn--lg" type="button">
             Войти в комнату
           </button>
         </div>
@@ -59,7 +73,7 @@
       </section>
 
       <footer class="foot">
-        <span>Сервер хранит колоду и логику игры. Клиент только отображает состояние.</span>
+        <span>Колода и правила на сервере — клиент только показывает стол.</span>
       </footer>
     </main>
 

@@ -17,6 +17,8 @@
   const elErr = document.getElementById('roomError');
   const elStatus = document.getElementById('gameStatus');
   const elTurn = document.getElementById('turnHint');
+  const elAutoRound = document.getElementById('autoRoundHint');
+  const elUxBanner = document.getElementById('uxBanner');
   const elDealerCards = document.getElementById('dealerCards');
   const elDealerScore = document.getElementById('dealerScore');
   const elPlayersGrid = document.getElementById('playersGrid');
@@ -64,6 +66,38 @@
   elPname.textContent = playerName;
 
   let lastState = null;
+  let prevMyChips = null;
+  let autoRoundInterval = null;
+
+  function clearAutoRoundCountdown() {
+    if (autoRoundInterval) {
+      clearInterval(autoRoundInterval);
+      autoRoundInterval = null;
+    }
+    if (elAutoRound) {
+      elAutoRound.hidden = true;
+      elAutoRound.textContent = '';
+    }
+  }
+
+  function updateAutoRoundCountdown(state) {
+    clearAutoRoundCountdown();
+    if (!elAutoRound || !state || state.phase !== 'round_end' || !state.autoNextRoundAt) {
+      return;
+    }
+    const tick = function () {
+      const st = lastState;
+      if (!st || st.phase !== 'round_end' || !st.autoNextRoundAt) {
+        clearAutoRoundCountdown();
+        return;
+      }
+      const sec = Math.max(0, Math.ceil((st.autoNextRoundAt - Date.now()) / 1000));
+      elAutoRound.textContent = 'Следующий раунд (ставки) через ' + sec + ' с';
+      elAutoRound.hidden = false;
+    };
+    tick();
+    autoRoundInterval = setInterval(tick, 400);
+  }
 
   function showError(text) {
     if (!text) {
@@ -79,34 +113,41 @@
     return suit === '♥' || suit === '♦' ? 'card--red' : '';
   }
 
-  function cardHtml(card, small) {
+  function cardHtml(card, small, index) {
+    const i = typeof index === 'number' ? index : 0;
+    const delay = (i * 0.055).toFixed(3);
+    const sm = small ? ' card--small' : '';
+    const style = ' style="--deal-delay:' + delay + 's"';
     if (card && card.hidden) {
       return (
-        '<div class="card card--back' +
-        (small ? ' card--small' : '') +
-        '" aria-label="Скрытая карта"></div>'
+        '<div class="playing-card"><div class="card card--back' +
+        sm +
+        ' card--deal"' +
+        style +
+        ' aria-label="Скрытая карта"></div></div>'
       );
     }
     const rank = String(card.rank);
     const suit = String(card.suit);
-    const sm = small ? ' card--small' : '';
     return (
-      '<div class="card ' +
+      '<div class="playing-card"><div class="card ' +
       suitClass(suit) +
       sm +
+      ' card--deal"' +
+      style +
       '"><div class="card__inner"><div class="card__rank">' +
       rank +
       '</div><div class="card__suit">' +
       suit +
       '</div><div class="card__rank">' +
       rank +
-      '</div></div></div>'
+      '</div></div></div></div>'
     );
   }
 
   function renderDealer(state) {
     const d = state.dealer;
-    elDealerCards.innerHTML = (d.cards || []).map((c) => cardHtml(c, false)).join('');
+    elDealerCards.innerHTML = (d.cards || []).map((c, i) => cardHtml(c, false, i)).join('');
     if (state.phase === 'round_end' && d.fullValue != null) {
       elDealerScore.textContent = 'Очки: ' + d.fullValue;
     } else {
@@ -163,16 +204,13 @@
           row.innerHTML =
             '<div class="player-panel__skip">Нет карт (не участвуете в раунде)</div>';
         } else {
-          row.innerHTML = (p.hand || []).map((c) => cardHtml(c, true)).join('');
+          row.innerHTML = (p.hand || []).map((c, i) => cardHtml(c, true, i)).join('');
         }
       } else {
-        row.innerHTML = (p.hand || []).map((c) => cardHtml(c, true)).join('');
+        row.innerHTML = (p.hand || []).map((c, i) => cardHtml(c, true, i)).join('');
       }
       const foot = document.createElement('div');
-      foot.style.marginTop = '10px';
-      foot.style.display = 'flex';
-      foot.style.gap = '8px';
-      foot.style.flexWrap = 'wrap';
+      foot.className = 'player-panel__foot';
       if (p.bust && p.inRound) {
         const t = document.createElement('span');
         t.className = 'tag tag--bad';
@@ -217,24 +255,27 @@
       const bits = [];
       if (p.isHost) bits.push('хост');
       if (p.online === false) bits.push('офлайн');
-      bits.push(String(p.chips) + ' фишек');
       s.textContent = bits.join(' • ');
       a.appendChild(n);
       a.appendChild(s);
+      const chips = document.createElement('span');
+      chips.className = 'player-list__chips';
+      chips.textContent = String(p.chips);
       li.appendChild(a);
+      li.appendChild(chips);
       elList.appendChild(li);
     });
   }
 
   function statusText(state) {
     if (state.phase === 'lobby') {
-      return 'Лобби: ожидание';
+      return 'Лобби';
     }
     if (state.phase === 'betting') {
       return 'Приём ставок';
     }
     if (state.phase === 'playing') {
-      return 'Идёт раунд: ход игроков';
+      return 'Раунд идёт';
     }
     if (state.phase === 'round_end') {
       return 'Раунд завершён';
@@ -242,11 +283,35 @@
     return '—';
   }
 
+  function syncBetChipButtons(state) {
+    const me = (state.players || []).find((x) => x.id === playerId);
+    if (!me || state.phase !== 'betting') {
+      document.querySelectorAll('[data-bet]').forEach((btn) => {
+        btn.classList.remove('is-selected');
+      });
+      return;
+    }
+    const raw = String(elBetInput.value || '').trim();
+    document.querySelectorAll('[data-bet]').forEach((btn) => {
+      const d = btn.getAttribute('data-bet');
+      const matchPreset = me.betReady && String(me.roundBet) === d;
+      const matchInput = raw !== '' && raw === d;
+      btn.classList.toggle('is-selected', matchPreset || matchInput);
+    });
+  }
+
   function syncBettingPanel(state) {
     const me = (state.players || []).find((x) => x.id === playerId);
     if (!me) {
       return;
     }
+    if (prevMyChips !== null && me.chips !== prevMyChips) {
+      elMyChips.classList.remove('flash-up', 'flash-down');
+      void elMyChips.offsetWidth;
+      elMyChips.classList.add(me.chips > prevMyChips ? 'flash-up' : 'flash-down');
+    }
+    prevMyChips = me.chips;
+
     elMyChips.textContent = String(me.chips);
     elBetInput.max = String(me.chips);
     if (state.phase === 'betting') {
@@ -260,11 +325,80 @@
         elBetStatus.textContent = '';
       }
     }
+    syncBetChipButtons(state);
+  }
+
+  function updateUxBanner(state) {
+    if (!elUxBanner) return;
+    const me = (state.players || []).find((x) => x.id === playerId);
+    if (state.phase === 'round_end' && me && me.inRound && me.roundResult) {
+      elUxBanner.hidden = false;
+      const r = me.roundResult;
+      elUxBanner.className = 'ux-banner';
+      if (r === 'win') {
+        elUxBanner.textContent = 'Вы выиграли!';
+      } else if (r === 'blackjack') {
+        elUxBanner.textContent = 'Блэкджек! Отличная рука.';
+      } else if (r === 'lose') {
+        elUxBanner.textContent = 'Вы проиграли.';
+        elUxBanner.classList.add('ux-banner--lose');
+      } else if (r === 'bust') {
+        elUxBanner.textContent = 'Перебор. Ставка сгорела.';
+        elUxBanner.classList.add('ux-banner--lose');
+      } else if (r === 'push') {
+        elUxBanner.textContent = 'Ничья. Ставка возвращена.';
+        elUxBanner.classList.add('ux-banner--push');
+      } else {
+        elUxBanner.hidden = true;
+      }
+    } else {
+      elUxBanner.hidden = true;
+      elUxBanner.textContent = '';
+    }
+  }
+
+  function updateTurnHint(state) {
+    const phase = state.phase;
+    const me = (state.players || []).find((x) => x.id === playerId);
+    if (phase === 'round_end') {
+      elTurn.hidden = true;
+      return;
+    }
+    if (phase === 'playing' && state.activePlayerId) {
+      const ap = (state.players || []).find((x) => x.id === state.activePlayerId);
+      elTurn.hidden = false;
+      if (ap && ap.id === playerId) {
+        elTurn.textContent = 'Ваш ход — Hit или Stand';
+        elTurn.className = 'pill pill--turn pill--turn-me';
+      } else {
+        elTurn.textContent = ap ? 'Ожидание: ход ' + ap.name : 'Ожидание хода';
+        elTurn.className = 'pill pill--turn';
+      }
+      return;
+    }
+    if (phase === 'betting') {
+      elTurn.hidden = false;
+      if (me && me.betReady) {
+        elTurn.textContent = 'Ставка принята. Ожидайте других игроков.';
+      } else {
+        elTurn.textContent = 'Сделайте ставку';
+      }
+      elTurn.className = 'pill pill--turn';
+      return;
+    }
+    if (phase === 'lobby') {
+      elTurn.hidden = false;
+      elTurn.textContent = 'Ожидание приёма ставок';
+      elTurn.className = 'pill pill--turn';
+      return;
+    }
+    elTurn.hidden = true;
   }
 
   function applyUi(state) {
     lastState = state;
     elStatus.textContent = statusText(state);
+    elStatus.className = 'pill pill--status';
 
     const isHost = state.hostId === playerId;
     elHost.hidden = !isHost;
@@ -299,18 +433,10 @@
     btnHit.disabled = !canHitStand;
     btnStand.disabled = !canHitStand;
 
-    if (inRound && state.activePlayerId) {
-      const ap = (state.players || []).find((x) => x.id === state.activePlayerId);
-      elTurn.hidden = false;
-      elTurn.textContent = ap
-        ? 'Сейчас ход: ' + ap.name + (ap.id === playerId ? ' (вы)' : '')
-        : 'Сейчас ход';
-    } else {
-      elTurn.hidden = true;
-      elTurn.textContent = '';
-    }
-
+    updateTurnHint(state);
+    updateUxBanner(state);
     syncBettingPanel(state);
+    updateAutoRoundCountdown(state);
     renderDealer(state);
     renderPlayers(state);
     renderList(state);
@@ -334,6 +460,7 @@
   socket.on('all-bets-placed', () => {
     if (lastState) {
       elStatus.textContent = 'Все ставки приняты';
+      elStatus.className = 'pill pill--status';
     }
   });
 
@@ -357,7 +484,8 @@
   });
 
   socket.on('dealer-turn', () => {
-    elStatus.textContent = 'Ход дилера…';
+    elStatus.textContent = 'Ход дилера';
+    elStatus.className = 'pill pill--status';
   });
 
   socket.on('connect', () => {
@@ -380,7 +508,16 @@
     btn.addEventListener('click', () => {
       const v = btn.getAttribute('data-bet');
       elBetInput.value = v || '';
+      if (lastState) {
+        syncBetChipButtons(lastState);
+      }
     });
+  });
+
+  elBetInput.addEventListener('input', () => {
+    if (lastState) {
+      syncBetChipButtons(lastState);
+    }
   });
 
   btnPlaceBet.addEventListener('click', () => {
@@ -411,6 +548,7 @@
   });
 
   btnLeave.addEventListener('click', () => {
+    clearAutoRoundCountdown();
     socket.emit('leave-room');
     localStorage.removeItem(LS_ID);
     localStorage.removeItem(LS_ROOM);

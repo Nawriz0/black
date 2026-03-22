@@ -3,54 +3,67 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Blackjack — комната</title>
+    <title>Blackjack — стол</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body class="page page--room">
-    <div class="bg-pattern" aria-hidden="true"></div>
+    <div class="bg-ambient" aria-hidden="true"></div>
+    <div class="bg-grid" aria-hidden="true"></div>
+    <div class="bg-glow bg-glow--1" aria-hidden="true"></div>
+    <div class="bg-glow bg-glow--2" aria-hidden="true"></div>
+
     <main class="shell shell--wide">
-      <header class="room-head">
-        <div>
+      <header class="room-head glass">
+        <div class="room-head__brand">
           <p class="eyebrow">Комната</p>
           <h1 class="room-head__title">
-            Код: <span id="displayRoomCode" class="mono">------</span>
+            <span class="room-head__kicker">Код комнаты</span>
+            <span id="displayRoomCode" class="mono room-head__code">------</span>
           </h1>
-          <p class="muted">
-            Игрок: <strong id="displayPlayerName">—</strong>
-            <span id="hostBadge" class="badge" hidden>Хост</span>
+          <p class="muted room-head__player">
+            <span class="room-head__label">Игрок</span>
+            <strong id="displayPlayerName">—</strong>
+            <span id="hostBadge" class="badge badge--host" hidden>Хост</span>
           </p>
         </div>
         <div class="room-head__actions">
-          <button id="btnCopyCode" class="btn btn--ghost" type="button">
+          <button id="btnCopyCode" class="btn btn--ghost btn--sm" type="button" title="Скопировать код">
             Копировать код
           </button>
-          <button id="btnLeave" class="btn btn--danger" type="button">
-            Покинуть комнату
-          </button>
+          <button id="btnLeave" class="btn btn--danger btn--sm" type="button">Выйти</button>
         </div>
       </header>
 
       <p id="roomError" class="msg msg--error" role="status" hidden></p>
 
+      <div id="uxBanner" class="ux-banner" role="status" hidden></div>
+
       <section class="status-bar">
-        <div class="pill" id="gameStatus">Ожидание игроков</div>
-        <div class="pill pill--muted" id="turnHint" hidden></div>
+        <div class="pill pill--status" id="gameStatus">Ожидание игроков</div>
+        <div class="pill pill--turn" id="turnHint" hidden></div>
+        <div id="autoRoundHint" class="pill pill--countdown" hidden></div>
       </section>
 
-      <section id="bettingPanel" class="betting-panel" hidden>
-        <h2 class="betting-panel__title">Ставки</h2>
+      <section id="bettingPanel" class="betting-panel glass" hidden>
+        <div class="betting-panel__head">
+          <h2 class="betting-panel__title">Ставки</h2>
+          <div class="betting-panel__balance-pill">
+            Баланс: <span id="myChipsDisplay" class="chips-num">1000</span>
+          </div>
+        </div>
         <p class="betting-panel__hint muted" id="bettingHint">
           Выберите сумму или введите свою, затем нажмите «Поставить». Ставка 0 — пропуск раунда.
         </p>
-        <div class="betting-panel__row">
-          <span class="betting-panel__balance"
-            >Баланс: <strong id="myChipsDisplay">1000</strong></span
-          >
-        </div>
         <div class="betting-panel__chips">
-          <button type="button" class="btn btn--ghost btn--chip" data-bet="50">50</button>
-          <button type="button" class="btn btn--ghost btn--chip" data-bet="100">100</button>
-          <button type="button" class="btn btn--ghost btn--chip" data-bet="200">200</button>
+          <button type="button" class="btn btn--chip-preset" data-bet="50">50</button>
+          <button type="button" class="btn btn--chip-preset" data-bet="100">100</button>
+          <button type="button" class="btn btn--chip-preset" data-bet="200">200</button>
         </div>
         <div class="betting-panel__row betting-panel__row--grow">
           <input
@@ -62,26 +75,36 @@
             inputmode="numeric"
             placeholder="Сумма"
           />
-          <button id="btnPlaceBet" class="btn btn--primary" type="button">Поставить</button>
+          <button id="btnPlaceBet" class="btn btn--gold" type="button">Поставить</button>
         </div>
         <p id="betStatus" class="betting-panel__status muted" hidden></p>
       </section>
 
-      <section class="felt">
-        <div class="dealer-block">
-          <div class="block-title">
-            <span>Дилер</span>
-            <span class="score" id="dealerScore"></span>
+      <section class="table-wrap">
+        <div class="table-rail" aria-hidden="true"></div>
+        <section class="felt">
+          <div class="felt__shine" aria-hidden="true"></div>
+          <div class="dealer-block">
+            <div class="block-title">
+              <span class="block-title__name">
+                <span class="block-title__icon">♠</span> Дилер
+              </span>
+              <span class="score score--dealer" id="dealerScore"></span>
+            </div>
+            <div id="dealerCards" class="cards-row cards-row--dealer"></div>
           </div>
-          <div id="dealerCards" class="cards-row"></div>
-        </div>
 
-        <div class="players-grid" id="playersGrid"></div>
+          <div class="felt__divider" aria-hidden="true">
+            <span>Стол</span>
+          </div>
+
+          <div class="players-grid" id="playersGrid"></div>
+        </section>
       </section>
 
-      <section class="controls">
+      <section class="controls-bar glass">
         <div class="controls__host" id="hostControls" hidden>
-          <button id="btnStartBetting" class="btn btn--primary" type="button" hidden>
+          <button id="btnStartBetting" class="btn btn--gold" type="button" hidden>
             Начать приём ставок
           </button>
           <button id="btnStartGame" class="btn btn--primary" type="button" hidden>
@@ -92,17 +115,15 @@
           </button>
         </div>
         <div class="controls__player" id="playerControls" hidden>
-          <button id="btnHit" class="btn btn--primary" type="button">Hit</button>
-          <button id="btnStand" class="btn btn--secondary" type="button">
-            Stand
-          </button>
+          <button id="btnHit" class="btn btn--hit" type="button">Hit</button>
+          <button id="btnStand" class="btn btn--stand" type="button">Stand</button>
         </div>
       </section>
 
-      <section class="side">
+      <aside class="side glass">
         <h2 class="side__title">Игроки</h2>
         <ul id="playerList" class="player-list"></ul>
-      </section>
+      </aside>
     </main>
 
     <script src="/socket.io/socket.io.js"></script>

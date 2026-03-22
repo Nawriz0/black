@@ -11,7 +11,11 @@ const io = new Server(server, {
   cors: { origin: true, credentials: true },
 });
 
-const roomManager = new RoomManager();
+const roomManager = new RoomManager({
+  onRoomPhaseChanged: (roomCode) => {
+    pushState(roomCode);
+  },
+});
 
 app.use(express.static(path.join(__dirname, 'public')));
 

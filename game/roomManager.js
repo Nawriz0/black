@@ -16,6 +16,7 @@ const {
 } = require('./balanceStore');
 
 const MAX_PLAYERS = 6;
+const AUTO_NEXT_ROUND_MS = 8000;
 
 function generatePlayerId() {
   return crypto.randomBytes(16).toString('hex');
@@ -132,10 +133,11 @@ function dealerPlayAndSettle(room) {
   applyChipPayouts(room);
 }
 
-function startRound(room) {
+function startRound(room, roomManager) {
   const participants = room.players.filter((p) => p.roundStake > 0);
   if (participants.length === 0) {
     room.phase = 'round_end';
+    roomManager.scheduleAutoNextRound(room);
     return { dealerTurn: false };
   }
 
@@ -163,6 +165,7 @@ function startRound(room) {
   if (isNaturalBlackjack(room.dealerHand)) {
     settleDealerBlackjackRound(room);
     room.phase = 'round_end';
+    roomManager.scheduleAutoNextRound(room);
     return { dealerTurn: true };
   }
 
@@ -176,6 +179,7 @@ function startRound(room) {
   if (needAction.length === 0) {
     dealerPlayAndSettle(room);
     room.phase = 'round_end';
+    roomManager.scheduleAutoNextRound(room);
     return { dealerTurn: true };
   }
 
@@ -186,19 +190,20 @@ function startRound(room) {
   return { dealerTurn: false };
 }
 
-function advanceAfterPlayerTurn(room) {
+function advanceAfterPlayerTurn(room, roomManager) {
   room.turnIndex += 1;
   if (room.turnIndex >= room.turnQueue.length) {
     room.activePlayerId = null;
     dealerPlayAndSettle(room);
     room.phase = 'round_end';
+    roomManager.scheduleAutoNextRound(room);
     return 'dealer';
   }
   room.activePlayerId = room.turnQueue[room.turnIndex];
   return 'next';
 }
 
-function removePlayerFromTurnQueue(room, playerId) {
+function removePlayerFromTurnQueue(room, playerId, roomManager) {
   if (room.phase !== 'playing') {
     return null;
   }
@@ -209,6 +214,7 @@ function removePlayerFromTurnQueue(room, playerId) {
     room.activePlayerId = null;
     dealerPlayAndSettle(room);
     room.phase = 'round_end';
+    roomManager.scheduleAutoNextRound(room);
     return 'dealer';
   }
   if (wasActive) {
@@ -224,7 +230,16 @@ function removePlayerFromTurnQueue(room, playerId) {
   return null;
 }
 
+function clearRoomAutoRound(room) {
+  if (room.autoNextRoundTimer) {
+    clearTimeout(room.autoNextRoundTimer);
+    room.autoNextRoundTimer = null;
+  }
+  room.autoNextRoundAt = null;
+}
+
 function enterBettingPhase(room) {
+  clearRoomAutoRound(room);
   room.phase = 'betting';
   room.deck = null;
   room.dealerHand = [];
@@ -245,9 +260,38 @@ function enterBettingPhase(room) {
 }
 
 class RoomManager {
-  constructor() {
+  constructor(options) {
+    const opts = options || {};
     this.rooms = new Map();
     this.socketToRoom = new Map();
+    this._onRoomPhaseChanged = typeof opts.onRoomPhaseChanged === 'function' ? opts.onRoomPhaseChanged : null;
+  }
+
+  clearAutoNextRound(room) {
+    clearRoomAutoRound(room);
+  }
+
+  scheduleAutoNextRound(room) {
+    clearRoomAutoRound(room);
+    if (room.phase !== 'round_end') {
+      return;
+    }
+    const delay = AUTO_NEXT_ROUND_MS;
+    room.autoNextRoundAt = Date.now() + delay;
+    const code = room.code;
+    const self = this;
+    room.autoNextRoundTimer = setTimeout(() => {
+      room.autoNextRoundTimer = null;
+      room.autoNextRoundAt = null;
+      const still = self.rooms.get(code);
+      if (!still || still !== room || room.phase !== 'round_end') {
+        return;
+      }
+      enterBettingPhase(room);
+      if (self._onRoomPhaseChanged) {
+        self._onRoomPhaseChanged(code);
+      }
+    }, delay);
   }
 
   _newRoomCode() {
@@ -289,6 +333,8 @@ class RoomManager {
       turnIndex: 0,
       activePlayerId: null,
       dealerHoleRevealed: false,
+      autoNextRoundTimer: null,
+      autoNextRoundAt: null,
     };
     this.rooms.set(code, room);
     this._linkSocket(socketId, code);
@@ -385,10 +431,11 @@ class RoomManager {
     const wasHost = idx === 0;
     const pid = leaving.id;
     persistPlayerBalance(leaving.name, leaving.chips);
-    const adv = removePlayerFromTurnQueue(room, pid);
+    const adv = removePlayerFromTurnQueue(room, pid, this);
     room.players.splice(idx, 1);
     this._unlinkSocket(socketId);
     if (room.players.length === 0) {
+      clearRoomAutoRound(room);
       this.rooms.delete(code);
       return { ok: true, roomRemoved: true, roomCode: code };
     }
@@ -481,7 +528,7 @@ class RoomManager {
       p.betReady = false;
     }
     persistBalancesForRoom(room);
-    const sr = startRound(room);
+    const sr = startRound(room, this);
     return {
       ok: true,
       endedImmediately: room.phase === 'round_end',
@@ -511,12 +558,12 @@ class RoomManager {
     player.hand.push(drawCard(room));
     if (isBust(player.hand)) {
       player.bust = true;
-      const adv = advanceAfterPlayerTurn(room);
+      const adv = advanceAfterPlayerTurn(room, this);
       return { ok: true, advance: adv };
     }
     const v = handValue(player.hand).total;
     if (v === 21) {
-      const adv = advanceAfterPlayerTurn(room);
+      const adv = advanceAfterPlayerTurn(room, this);
       return { ok: true, advance: adv };
     }
     return { ok: true, advance: null };
@@ -541,7 +588,7 @@ class RoomManager {
     if (room.activePlayerId !== player.id) {
       return { ok: false, error: 'Сейчас не ваш ход' };
     }
-    const adv = advanceAfterPlayerTurn(room);
+    const adv = advanceAfterPlayerTurn(room, this);
     return { ok: true, advance: adv };
   }
 
@@ -618,6 +665,7 @@ class RoomManager {
       code: room.code,
       phase: room.phase,
       hostId: room.players[0] ? room.players[0].id : null,
+      autoNextRoundAt: room.autoNextRoundAt || null,
       bettingPhase: room.phase === 'betting',
       allBetsPlaced: room.phase === 'betting' ? allPlayersBetReady(room) : false,
       canStartDeal:
