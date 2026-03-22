@@ -7,9 +7,15 @@ const {
   dealerMustHit,
   comparePlayerVsDealer,
 } = require('./blackjack');
+const {
+  STARTING_CHIPS,
+  normalizeName,
+  getInitialChipsForName,
+  persistPlayerBalance,
+  persistBalancesForRoom,
+} = require('./balanceStore');
 
 const MAX_PLAYERS = 6;
-const STARTING_CHIPS = 1000;
 
 function generatePlayerId() {
   return crypto.randomBytes(16).toString('hex');
@@ -32,12 +38,13 @@ function drawCard(room) {
 }
 
 function makePlayer(name, socketId, isHost) {
+  const displayName = String(name || '').trim();
   return {
     id: generatePlayerId(),
-    name: String(name || '').trim(),
+    name: displayName,
     socketId: socketId || null,
     isHost: !!isHost,
-    chips: STARTING_CHIPS,
+    chips: getInitialChipsForName(displayName),
     roundBet: 0,
     betReady: false,
     roundStake: 0,
@@ -76,6 +83,7 @@ function applyChipPayouts(room) {
     p.lastRoundDelta = p.chips - before;
     p.roundStake = 0;
   }
+  persistBalancesForRoom(room);
 }
 
 function settleDealerBlackjackRound(room) {
@@ -303,6 +311,10 @@ class RoomManager {
     if (room.players.length >= MAX_PLAYERS) {
       return { ok: false, error: 'Комната заполнена' };
     }
+    const nn = normalizeName(trimmed);
+    if (room.players.some((x) => normalizeName(x.name) === nn)) {
+      return { ok: false, error: 'Это имя уже занято в комнате' };
+    }
     const p = makePlayer(trimmed, socketId, false);
     room.players.push(p);
     this._linkSocket(socketId, code);
@@ -348,6 +360,7 @@ class RoomManager {
     const player = room.players.find((p) => p.socketId === socketId);
     if (player) {
       player.socketId = null;
+      persistPlayerBalance(player.name, player.chips);
     }
     this._unlinkSocket(socketId);
     return { ok: true, roomCode: code };
@@ -371,6 +384,7 @@ class RoomManager {
     const leaving = room.players[idx];
     const wasHost = idx === 0;
     const pid = leaving.id;
+    persistPlayerBalance(leaving.name, leaving.chips);
     const adv = removePlayerFromTurnQueue(room, pid);
     room.players.splice(idx, 1);
     this._unlinkSocket(socketId);
@@ -466,6 +480,7 @@ class RoomManager {
       p.roundBet = 0;
       p.betReady = false;
     }
+    persistBalancesForRoom(room);
     const sr = startRound(room);
     return {
       ok: true,
