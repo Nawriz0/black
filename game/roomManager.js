@@ -577,7 +577,9 @@ class RoomManager {
 
     const players = room.players.map((p) => {
       const hv = handValue(p.hand);
-      const inRound = p.roundStake > 0;
+      const inRound =
+        p.roundStake > 0 ||
+        (room.phase === 'round_end' && p.roundResult != null);
       return {
         id: p.id,
         name: p.name,
