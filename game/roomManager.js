@@ -38,13 +38,14 @@ function drawCard(room) {
   return room.deck.draw();
 }
 
-function makePlayer(name, socketId, isHost) {
+function makePlayer(name, socketId, isHost, isSpectator = false) {
   const displayName = String(name || '').trim();
   return {
     id: generatePlayerId(),
     name: displayName,
     socketId: socketId || null,
     isHost: !!isHost,
+    isSpectator: !!isSpectator,
     chips: getInitialChipsForName(displayName),
     roundBet: 0,
     betReady: false,
@@ -58,11 +59,14 @@ function makePlayer(name, socketId, isHost) {
 }
 
 function allPlayersBetReady(room) {
-  return room.players.length > 0 && room.players.every((p) => p.betReady);
+  // Учитываем только игроков (не spectators)
+  const activePlayers = room.players.filter((p) => !p.isSpectator);
+  return activePlayers.length > 0 && activePlayers.every((p) => p.betReady);
 }
 
 function atLeastOneBet(room) {
-  return room.players.some((p) => p.roundBet > 0);
+  // Учитываем только игроков (не spectators)
+  return room.players.some((p) => !p.isSpectator && p.roundBet > 0);
 }
 
 function applyChipPayouts(room) {
@@ -134,7 +138,8 @@ function dealerPlayAndSettle(room) {
 }
 
 function startRound(room, roomManager) {
-  const participants = room.players.filter((p) => p.roundStake > 0);
+  // Участвуют только игроки (не spectators) с roundStake > 0
+  const participants = room.players.filter((p) => !p.isSpectator && p.roundStake > 0);
   if (participants.length === 0) {
     room.phase = 'round_end';
     roomManager.scheduleAutoNextRound(room);
@@ -248,6 +253,10 @@ function enterBettingPhase(room) {
   room.turnIndex = 0;
   room.activePlayerId = null;
   for (const p of room.players) {
+    // Автоматически конвертируем spectators в игроков при начале нового раунда
+    if (p.isSpectator) {
+      p.isSpectator = false;
+    }
     p.roundBet = 0;
     p.betReady = false;
     p.roundStake = 0;
@@ -351,20 +360,21 @@ class RoomManager {
     if (!room) {
       return { ok: false, error: 'Комната не найдена' };
     }
-    if (room.phase !== 'lobby') {
-      return { ok: false, error: 'Игра уже началась' };
-    }
-    if (room.players.length >= MAX_PLAYERS) {
+    // Если игра уже идёт (betting, playing, round_end), игрок становится spectator
+    const isSpectator = room.phase !== 'lobby';
+    // Проверяем лимит игроков (только для не-spectators)
+    if (!isSpectator && room.players.length >= MAX_PLAYERS) {
       return { ok: false, error: 'Комната заполнена' };
     }
     const nn = normalizeName(trimmed);
-    if (room.players.some((x) => normalizeName(x.name) === nn)) {
+    // Проверяем уникальность имени только для не-spectators
+    if (!isSpectator && room.players.some((x) => normalizeName(x.name) === nn)) {
       return { ok: false, error: 'Это имя уже занято в комнате' };
     }
-    const p = makePlayer(trimmed, socketId, false);
+    const p = makePlayer(trimmed, socketId, false, isSpectator);
     room.players.push(p);
     this._linkSocket(socketId, code);
-    return { ok: true, roomCode: code, playerId: p.id };
+    return { ok: true, roomCode: code, playerId: p.id, isSpectator };
   }
 
   rejoinRoom(roomCode, playerId, playerName, socketId) {
@@ -390,7 +400,8 @@ class RoomManager {
     }
     player.socketId = socketId;
     this._linkSocket(socketId, code);
-    return { ok: true, roomCode: code, playerId: player.id, hostId: room.players[0].id };
+    // Возвращаем статус isSpectator при rejoin
+    return { ok: true, roomCode: code, playerId: player.id, hostId: room.players[0].id, isSpectator: player.isSpectator };
   }
 
   onDisconnect(socketId) {
@@ -646,6 +657,7 @@ class RoomManager {
         id: p.id,
         name: p.name,
         isHost: p.isHost,
+        isSpectator: p.isSpectator,
         online: p.socketId != null,
         chips: p.chips,
         roundBet: p.roundBet,

@@ -14,6 +14,7 @@
   const elCode = document.getElementById('displayRoomCode');
   const elPname = document.getElementById('displayPlayerName');
   const elHost = document.getElementById('hostBadge');
+  const elSpectator = document.getElementById('spectatorBadge');
   const elErr = document.getElementById('roomError');
   const elStatus = document.getElementById('gameStatus');
   const elTurn = document.getElementById('turnHint');
@@ -68,6 +69,7 @@
   let lastState = null;
   let prevMyChips = null;
   let autoRoundInterval = null;
+  let amISpectator = false;
 
   function clearAutoRoundCountdown() {
     if (autoRoundInterval) {
@@ -174,6 +176,7 @@
       meta.className = 'player-panel__meta';
       const bits = [];
       if (p.isHost) bits.push('хост');
+      if (p.isSpectator) bits.push('наблюдатель');
       if (p.online === false) bits.push('офлайн');
       bits.push('фишки: ' + p.chips);
       if (phase === 'betting') {
@@ -254,6 +257,7 @@
       s.className = 'player-list__sub';
       const bits = [];
       if (p.isHost) bits.push('хост');
+      if (p.isSpectator) bits.push('наблюдатель');
       if (p.online === false) bits.push('офлайн');
       s.textContent = bits.join(' • ');
       a.appendChild(n);
@@ -400,8 +404,15 @@
     elStatus.textContent = statusText(state);
     elStatus.className = 'pill pill--status';
 
+    // Обновляем статус spectator из state
+    const me = (state.players || []).find((x) => x.id === playerId);
+    if (me) {
+      amISpectator = me.isSpectator || false;
+    }
+
     const isHost = state.hostId === playerId;
     elHost.hidden = !isHost;
+    elSpectator.hidden = !amISpectator;
 
     const inRound = state.phase === 'playing';
     const ended = state.phase === 'round_end';
@@ -419,21 +430,31 @@
       btnStartGame.disabled = false;
     }
 
-    elBettingPanel.hidden = !betting;
-    if (betting) {
+    // Скрываем панель ставок для spectators
+    elBettingPanel.hidden = !betting || amISpectator;
+    if (betting && !amISpectator) {
       elBettingHint.textContent = state.allBetsPlaced
         ? 'Все игроки сделали ставку. Хост может начать игру.'
         : 'Выберите сумму или введите свою, затем нажмите «Поставить». Ставка 0 — пропуск раунда.';
+    } else if (betting && amISpectator) {
+      elBettingHint.textContent = 'Вы наблюдаете за игрой и не можете делать ставки';
     }
 
     const myTurn = inRound && state.activePlayerId === playerId;
-    const me = (state.players || []).find((x) => x.id === playerId);
-    const canHitStand = myTurn && me && me.inRound;
+    const canHitStand = myTurn && me && me.inRound && !amISpectator;
     elPlayerControls.hidden = !canHitStand;
     btnHit.disabled = !canHitStand;
     btnStand.disabled = !canHitStand;
 
-    updateTurnHint(state);
+    // Показываем подсказку для spectators
+    if (amISpectator) {
+      elTurn.hidden = false;
+      elTurn.textContent = 'Вы наблюдаете за игрой';
+      elTurn.className = 'pill pill--turn';
+    } else {
+      updateTurnHint(state);
+    }
+
     updateUxBanner(state);
     syncBettingPanel(state);
     updateAutoRoundCountdown(state);
@@ -499,6 +520,11 @@
           setTimeout(() => {
             window.location.href = '/?join=' + encodeURIComponent(roomCode);
           }, 1200);
+        } else {
+          // Сохраняем статус spectator
+          if (res.isSpectator) {
+            amISpectator = res.isSpectator;
+          }
         }
       }
     );

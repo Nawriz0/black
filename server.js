@@ -82,6 +82,7 @@ io.on('connection', (socket) => {
         ok: true,
         roomCode: res.roomCode,
         playerId: res.playerId,
+        isSpectator: res.isSpectator || false,
         hostId: roomManager.getPublicState(res.roomCode).hostId,
       });
     }
@@ -99,12 +100,17 @@ io.on('connection', (socket) => {
     }
     socket.join(res.roomCode);
     pushState(res.roomCode);
+    // Получаем актуальный статус spectator из комнаты
+    const room = roomManager.getPublicState(res.roomCode);
+    const player = room ? room.players.find((p) => p.id === playerId) : null;
+    const isSpectator = player ? player.isSpectator : false;
     if (typeof ack === 'function') {
       ack({
         ok: true,
         roomCode: res.roomCode,
         playerId: res.playerId,
-        hostId: roomManager.getPublicState(res.roomCode).hostId,
+        isSpectator: isSpectator,
+        hostId: room ? room.hostId : null,
       });
     }
   });
