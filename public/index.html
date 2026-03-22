@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Blackjack — комнаты</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body class="page page--home">
+    <div class="bg-pattern" aria-hidden="true"></div>
+    <main class="shell">
+      <header class="hero">
+        <p class="eyebrow">Онлайн • в реальном времени</p>
+        <h1 class="hero__title">Blackjack 21</h1>
+        <p class="hero__lead">
+          Создайте комнату, отправьте код друзьям и сыграйте вместе против дилера.
+        </p>
+      </header>
+
+      <section class="panel">
+        <label class="field">
+          <span class="field__label">Ваше имя</span>
+          <input
+            id="playerName"
+            class="input"
+            type="text"
+            maxlength="24"
+            autocomplete="nickname"
+            placeholder="Например, Алекс"
+          />
+        </label>
+
+        <div class="actions actions--stack">
+          <button id="btnCreate" class="btn btn--primary" type="button">
+            Создать комнату
+          </button>
+        </div>
+
+        <div class="divider"><span>или</span></div>
+
+        <label class="field">
+          <span class="field__label">Код комнаты</span>
+          <input
+            id="roomCode"
+            class="input input--mono"
+            type="text"
+            maxlength="8"
+            placeholder="Например, K7P2M3"
+          />
+        </label>
+
+        <div class="actions actions--stack">
+          <button id="btnJoin" class="btn btn--secondary" type="button">
+            Войти в комнату
+          </button>
+        </div>
+
+        <p id="homeError" class="msg msg--error" role="status" hidden></p>
+      </section>
+
+      <footer class="foot">
+        <span>Сервер хранит колоду и логику игры. Клиент только отображает состояние.</span>
+      </footer>
+    </main>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>

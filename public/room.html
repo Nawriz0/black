@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Blackjack — комната</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body class="page page--room">
+    <div class="bg-pattern" aria-hidden="true"></div>
+    <main class="shell shell--wide">
+      <header class="room-head">
+        <div>
+          <p class="eyebrow">Комната</p>
+          <h1 class="room-head__title">
+            Код: <span id="displayRoomCode" class="mono">------</span>
+          </h1>
+          <p class="muted">
+            Игрок: <strong id="displayPlayerName">—</strong>
+            <span id="hostBadge" class="badge" hidden>Хост</span>
+          </p>
+        </div>
+        <div class="room-head__actions">
+          <button id="btnCopyCode" class="btn btn--ghost" type="button">
+            Копировать код
+          </button>
+          <button id="btnLeave" class="btn btn--danger" type="button">
+            Покинуть комнату
+          </button>
+        </div>
+      </header>
+
+      <p id="roomError" class="msg msg--error" role="status" hidden></p>
+
+      <section class="status-bar">
+        <div class="pill" id="gameStatus">Ожидание игроков</div>
+        <div class="pill pill--muted" id="turnHint" hidden></div>
+      </section>
+
+      <section class="felt">
+        <div class="dealer-block">
+          <div class="block-title">
+            <span>Дилер</span>
+            <span class="score" id="dealerScore"></span>
+          </div>
+          <div id="dealerCards" class="cards-row"></div>
+        </div>
+
+        <div class="players-grid" id="playersGrid"></div>
+      </section>
+
+      <section class="controls">
+        <div class="controls__host" id="hostControls" hidden>
+          <button id="btnStart" class="btn btn--primary" type="button" hidden>
+            Начать игру
+          </button>
+          <button id="btnNewRound" class="btn btn--secondary" type="button" hidden>
+            Новый раунд
+          </button>
+        </div>
+        <div class="controls__player" id="playerControls" hidden>
+          <button id="btnHit" class="btn btn--primary" type="button">Hit</button>
+          <button id="btnStand" class="btn btn--secondary" type="button">
+            Stand
+          </button>
+        </div>
+      </section>
+
+      <section class="side">
+        <h2 class="side__title">Игроки</h2>
+        <ul id="playerList" class="player-list"></ul>
+      </section>
+    </main>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/room.js"></script>
+  </body>
+</html>
