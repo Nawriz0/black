@@ -115,14 +115,16 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('leave-room', () => {
+  socket.on('leave-room', (payload, ack) => {
     const res = roomManager.leaveRoom(socket.id);
     if (!res.ok) {
       socket.emit('game-error', { message: res.error });
+      if (typeof ack === 'function') ack(res);
       return;
     }
     socket.leave(res.roomCode);
     if (res.roomRemoved) {
+      if (typeof ack === 'function') ack(res);
       return;
     }
     if (res.advance === 'dealer') {
@@ -132,6 +134,7 @@ io.on('connection', (socket) => {
       const st = roomManager.getPublicState(res.roomCode);
       io.to(res.roomCode).emit('next-turn', { activePlayerId: st.activePlayerId });
     }
+    if (typeof ack === 'function') ack(res);
     pushState(res.roomCode);
   });
 
@@ -239,11 +242,25 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     const res = roomManager.onDisconnect(socket.id);
-    if (!res.ok || !res.roomCode) {
+    if (!res.ok) {
+      return;
+    }
+    if (res.roomRemoved) {
       return;
     }
     const code = res.roomCode;
+    // Обрабатываем продвижение хода после отключения
+    // Сначала обновляем состояние комнаты, затем отправляем события
     pushState(code);
+    if (res.advance === 'dealer') {
+      io.to(code).emit('dealer-turn', {});
+      emitRoundEnd(io, code);
+    } else if (res.advance === 'next') {
+      const st = roomManager.getPublicState(code);
+      if (st) {
+        io.to(code).emit('next-turn', { activePlayerId: st.activePlayerId });
+      }
+    }
   });
 });
 

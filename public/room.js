@@ -575,10 +575,15 @@
 
   btnLeave.addEventListener('click', () => {
     clearAutoRoundCountdown();
-    socket.emit('leave-room');
-    localStorage.removeItem(LS_ID);
-    localStorage.removeItem(LS_ROOM);
-    window.location.href = '/';
+    socket.emit('leave-room', null, (res) => {
+      if (res && res.ok) {
+        localStorage.removeItem(LS_ID);
+        localStorage.removeItem(LS_ROOM);
+        window.location.href = '/';
+      } else {
+        showError(res?.error || 'Ошибка при выходе из комнаты');
+      }
+    });
   });
 
   btnStartBetting.addEventListener('click', () => {

@@ -17,6 +17,7 @@ const {
 
 const MAX_PLAYERS = 6;
 const AUTO_NEXT_ROUND_MS = 8000;
+const ROOM_CLEANUP_DELAY_MS = 5000; // Даём время игроку на переподключение
 
 function generatePlayerId() {
   return crypto.randomBytes(16).toString('hex');
@@ -374,6 +375,13 @@ class RoomManager {
     const p = makePlayer(trimmed, socketId, false, isSpectator);
     room.players.push(p);
     this._linkSocket(socketId, code);
+    
+    // Отменяем таймер удаления комнаты при присоединении нового игрока
+    if (room.cleanupTimer) {
+      clearTimeout(room.cleanupTimer);
+      room.cleanupTimer = null;
+    }
+    
     return { ok: true, roomCode: code, playerId: p.id, isSpectator };
   }
 
@@ -400,6 +408,14 @@ class RoomManager {
     }
     player.socketId = socketId;
     this._linkSocket(socketId, code);
+    
+    // Отменяем таймер удаления комнаты при переподключении
+    if (room.cleanupTimer) {
+      clearTimeout(room.cleanupTimer);
+      room.cleanupTimer = null;
+      console.log(`Таймер удаления комнаты ${code} отменён`);
+    }
+    
     // Возвращаем статус isSpectator при rejoin
     return { ok: true, roomCode: code, playerId: player.id, hostId: room.players[0].id, isSpectator: player.isSpectator };
   }
@@ -415,12 +431,75 @@ class RoomManager {
       return { ok: false };
     }
     const player = room.players.find((p) => p.socketId === socketId);
-    if (player) {
-      player.socketId = null;
-      persistPlayerBalance(player.name, player.chips);
+    if (!player) {
+      this._unlinkSocket(socketId);
+      return { ok: false };
     }
+
+    // Сохраняем id игрока до отключения
+    const playerId = player.id;
+    const wasHost = player.isHost;
+    
+    // Сохраняем баланс
+    try {
+      persistPlayerBalance(player.name, player.chips);
+    } catch (err) {
+      console.error('Failed to persist player balance on disconnect:', err);
+    }
+
+    // Удаляем игрока из очереди хода, если он был в ней
+    const adv = removePlayerFromTurnQueue(room, playerId, this);
+
+    // Устанавливаем socketId = null вместо удаления игрока
+    // Это позволяет игроку переподключиться через rejoin-room
+    player.socketId = null;
+    
+    // Если хост отключился - назначаем нового среди активных игроков
+    // Примечание: room.hostId вычисляется как room.players[0].id в getPublicState,
+    // поэтому первый активный игрок автоматически становится новым хостом
+    if (wasHost) {
+      const activePlayers = room.players.filter(p => p.socketId !== null);
+      if (activePlayers.length > 0) {
+        activePlayers[0].isHost = true;
+      }
+    }
+
     this._unlinkSocket(socketId);
-    return { ok: true, roomCode: code };
+
+    // Проверяем количество АКТИВНЫХ игроков (с socketId !== null)
+    const activePlayers = room.players.filter(p => p.socketId !== null);
+    
+    // Если активных игроков не осталось - планируем удаление комнаты
+    if (activePlayers.length === 0) {
+      clearRoomAutoRound(room);
+      // Даём время игроку на переподключение
+      if (!room.cleanupTimer) {
+        room.cleanupTimer = setTimeout(() => {
+          const r = this.rooms.get(code);
+          if (r && r.cleanupTimer) {
+            // Проверяем ещё раз - возможно игрок переподключился
+            const currentActivePlayers = r.players.filter(p => p.socketId !== null);
+            if (currentActivePlayers.length === 0) {
+              clearRoomAutoRound(r);
+              this.rooms.delete(code);
+              console.log(`Комната ${code} удалена из-за отсутствия игроков`);
+            } else {
+              r.cleanupTimer = null;
+            }
+          }
+        }, ROOM_CLEANUP_DELAY_MS);
+      }
+      return { ok: true, roomRemoved: false, roomCode: code };
+    } else {
+      // Если есть активные игроки и был таймер - отменяем его
+      if (room.cleanupTimer) {
+        clearTimeout(room.cleanupTimer);
+        room.cleanupTimer = null;
+      }
+    }
+
+    // Возвращаем информацию о продвижении хода
+    return { ok: true, roomCode: code, advance: adv };
   }
 
   leaveRoom(socketId) {
