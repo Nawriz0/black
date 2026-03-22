@@ -23,10 +23,17 @@
   const elList = document.getElementById('playerList');
   const elHostControls = document.getElementById('hostControls');
   const elPlayerControls = document.getElementById('playerControls');
+  const elBettingPanel = document.getElementById('bettingPanel');
+  const elBettingHint = document.getElementById('bettingHint');
+  const elMyChips = document.getElementById('myChipsDisplay');
+  const elBetInput = document.getElementById('betInput');
+  const elBetStatus = document.getElementById('betStatus');
   const btnCopy = document.getElementById('btnCopyCode');
   const btnLeave = document.getElementById('btnLeave');
-  const btnStart = document.getElementById('btnStart');
+  const btnStartBetting = document.getElementById('btnStartBetting');
+  const btnStartGame = document.getElementById('btnStartGame');
   const btnNew = document.getElementById('btnNewRound');
+  const btnPlaceBet = document.getElementById('btnPlaceBet');
   const btnHit = document.getElementById('btnHit');
   const btnStand = document.getElementById('btnStand');
 
@@ -110,9 +117,10 @@
   function renderPlayers(state) {
     elPlayersGrid.innerHTML = '';
     const activeId = state.activePlayerId;
+    const phase = state.phase;
     (state.players || []).forEach((p) => {
       const isMe = p.id === playerId;
-      const isActive = p.id === activeId && state.phase === 'playing';
+      const isActive = p.id === activeId && phase === 'playing';
       const wrap = document.createElement('div');
       wrap.className = 'player-panel' + (isActive ? ' player-panel--active' : '');
       const head = document.createElement('div');
@@ -126,35 +134,67 @@
       const bits = [];
       if (p.isHost) bits.push('хост');
       if (p.online === false) bits.push('офлайн');
+      bits.push('фишки: ' + p.chips);
+      if (phase === 'betting') {
+        bits.push('ставка: ' + p.roundBet + (p.betReady ? ' ✓' : ''));
+      } else if (phase === 'playing' || phase === 'round_end') {
+        if (p.inRound) {
+          bits.push('в игре: ' + p.roundStake);
+        } else {
+          bits.push('вне раунда');
+        }
+      }
       meta.textContent = bits.join(' • ');
       left.appendChild(name);
       left.appendChild(meta);
       const right = document.createElement('div');
       right.className = 'player-panel__meta';
-      right.textContent = 'Очки: ' + String(p.value);
+      if (p.inRound || (phase !== 'playing' && phase !== 'round_end')) {
+        right.textContent = 'Очки: ' + String(p.value);
+      } else {
+        right.textContent = '—';
+      }
       head.appendChild(left);
       head.appendChild(right);
       const row = document.createElement('div');
       row.className = 'cards-row';
-      row.innerHTML = (p.hand || []).map((c) => cardHtml(c, true)).join('');
+      if (phase === 'playing' || phase === 'round_end') {
+        if (!p.inRound) {
+          row.innerHTML =
+            '<div class="player-panel__skip">Нет карт (не участвуете в раунде)</div>';
+        } else {
+          row.innerHTML = (p.hand || []).map((c) => cardHtml(c, true)).join('');
+        }
+      } else {
+        row.innerHTML = (p.hand || []).map((c) => cardHtml(c, true)).join('');
+      }
       const foot = document.createElement('div');
       foot.style.marginTop = '10px';
       foot.style.display = 'flex';
       foot.style.gap = '8px';
       foot.style.flexWrap = 'wrap';
-      if (p.bust) {
+      if (p.bust && p.inRound) {
         const t = document.createElement('span');
         t.className = 'tag tag--bad';
         t.textContent = 'Перебор';
         foot.appendChild(t);
       }
-      if (state.phase === 'round_end' && p.roundResult) {
+      if (phase === 'round_end' && p.roundResult && p.inRound) {
         const t = document.createElement('span');
         const r = p.roundResult;
         t.className =
           r === 'lose' || r === 'bust' ? 'tag tag--bad' : r === 'push' ? 'tag' : 'tag tag--good';
         t.textContent = OUTCOME_RU[r] || r;
         foot.appendChild(t);
+      }
+      if (phase === 'round_end' && p.inRound && p.lastRoundDelta != null) {
+        const d = document.createElement('span');
+        d.className = 'tag';
+        const v = p.lastRoundDelta;
+        d.textContent = (v >= 0 ? '+' : '') + v + ' фишек';
+        if (v > 0) d.classList.add('tag--good');
+        if (v < 0) d.classList.add('tag--bad');
+        foot.appendChild(d);
       }
       wrap.appendChild(head);
       wrap.appendChild(row);
@@ -177,7 +217,8 @@
       const bits = [];
       if (p.isHost) bits.push('хост');
       if (p.online === false) bits.push('офлайн');
-      s.textContent = bits.join(' • ') || 'онлайн';
+      bits.push(String(p.chips) + ' фишек');
+      s.textContent = bits.join(' • ');
       a.appendChild(n);
       a.appendChild(s);
       li.appendChild(a);
@@ -187,7 +228,10 @@
 
   function statusText(state) {
     if (state.phase === 'lobby') {
-      return 'Лобби: ожидание старта';
+      return 'Лобби: ожидание';
+    }
+    if (state.phase === 'betting') {
+      return 'Приём ставок';
     }
     if (state.phase === 'playing') {
       return 'Идёт раунд: ход игроков';
@@ -196,6 +240,26 @@
       return 'Раунд завершён';
     }
     return '—';
+  }
+
+  function syncBettingPanel(state) {
+    const me = (state.players || []).find((x) => x.id === playerId);
+    if (!me) {
+      return;
+    }
+    elMyChips.textContent = String(me.chips);
+    elBetInput.max = String(me.chips);
+    if (state.phase === 'betting') {
+      elBetInput.value = me.roundBet > 0 ? String(me.roundBet) : '';
+      if (me.betReady) {
+        elBetStatus.hidden = false;
+        elBetStatus.textContent =
+          'Ваша ставка зафиксирована (' + me.roundBet + '). Можно изменить до старта.';
+      } else {
+        elBetStatus.hidden = true;
+        elBetStatus.textContent = '';
+      }
+    }
   }
 
   function applyUi(state) {
@@ -208,15 +272,32 @@
     const inRound = state.phase === 'playing';
     const ended = state.phase === 'round_end';
     const lobby = state.phase === 'lobby';
+    const betting = state.phase === 'betting';
 
     elHostControls.hidden = !isHost;
-    btnStart.hidden = !(isHost && lobby);
+    btnStartBetting.hidden = !(isHost && lobby);
+    btnStartGame.hidden = !(isHost && betting);
     btnNew.hidden = !(isHost && ended);
 
+    if (isHost && betting) {
+      btnStartGame.disabled = !state.canStartDeal;
+    } else {
+      btnStartGame.disabled = false;
+    }
+
+    elBettingPanel.hidden = !betting;
+    if (betting) {
+      elBettingHint.textContent = state.allBetsPlaced
+        ? 'Все игроки сделали ставку. Хост может начать игру.'
+        : 'Выберите сумму или введите свою, затем нажмите «Поставить». Ставка 0 — пропуск раунда.';
+    }
+
     const myTurn = inRound && state.activePlayerId === playerId;
-    elPlayerControls.hidden = !myTurn;
-    btnHit.disabled = !myTurn;
-    btnStand.disabled = !myTurn;
+    const me = (state.players || []).find((x) => x.id === playerId);
+    const canHitStand = myTurn && me && me.inRound;
+    elPlayerControls.hidden = !canHitStand;
+    btnHit.disabled = !canHitStand;
+    btnStand.disabled = !canHitStand;
 
     if (inRound && state.activePlayerId) {
       const ap = (state.players || []).find((x) => x.id === state.activePlayerId);
@@ -229,6 +310,7 @@
       elTurn.textContent = '';
     }
 
+    syncBettingPanel(state);
     renderDealer(state);
     renderPlayers(state);
     renderList(state);
@@ -245,6 +327,14 @@
 
   socket.on('game-error', (payload) => {
     showError((payload && payload.message) || 'Ошибка');
+  });
+
+  socket.on('update-chips', () => {});
+
+  socket.on('all-bets-placed', () => {
+    if (lastState) {
+      elStatus.textContent = 'Все ставки приняты';
+    }
   });
 
   socket.on('room-state-update', (state) => {
@@ -286,6 +376,28 @@
     );
   });
 
+  document.querySelectorAll('[data-bet]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const v = btn.getAttribute('data-bet');
+      elBetInput.value = v || '';
+    });
+  });
+
+  btnPlaceBet.addEventListener('click', () => {
+    showError('');
+    const raw = String(elBetInput.value || '').trim();
+    let amount = raw === '' ? 0 : parseInt(raw, 10);
+    if (raw !== '' && !Number.isFinite(amount)) {
+      showError('Введите целое число');
+      return;
+    }
+    if (amount < 0) {
+      showError('Ставка не может быть отрицательной');
+      return;
+    }
+    socket.emit('place-bet', { roomCode: roomCode, amount: amount });
+  });
+
   btnCopy.addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText(roomCode);
@@ -305,7 +417,12 @@
     window.location.href = '/';
   });
 
-  btnStart.addEventListener('click', () => {
+  btnStartBetting.addEventListener('click', () => {
+    showError('');
+    socket.emit('start-betting', { roomCode: roomCode });
+  });
+
+  btnStartGame.addEventListener('click', () => {
     showError('');
     socket.emit('start-game', { roomCode: roomCode });
   });

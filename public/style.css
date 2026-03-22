@@ -547,3 +547,67 @@ body {
     min-width: 140px;
   }
 }
+
+.betting-panel {
+  border-radius: var(--radius);
+  border: 1px solid rgba(212, 175, 55, 0.22);
+  background: rgba(0, 0, 0, 0.28);
+  padding: 16px;
+  margin-bottom: 14px;
+}
+
+.betting-panel__title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 750;
+}
+
+.betting-panel__hint {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.betting-panel__balance {
+  font-size: 14px;
+}
+
+.betting-panel__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.betting-panel__row--grow .input {
+  flex: 1;
+  min-width: 120px;
+}
+
+.betting-panel__chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.btn--chip {
+  min-width: 64px;
+  font-variant-numeric: tabular-nums;
+}
+
+.betting-panel__status {
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+
+.player-panel__skip {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  padding: 12px 8px;
+  border-radius: 10px;
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  width: 100%;
+  text-align: center;
+}

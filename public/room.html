@@ -37,6 +37,36 @@
         <div class="pill pill--muted" id="turnHint" hidden></div>
       </section>
 
+      <section id="bettingPanel" class="betting-panel" hidden>
+        <h2 class="betting-panel__title">Ставки</h2>
+        <p class="betting-panel__hint muted" id="bettingHint">
+          Выберите сумму или введите свою, затем нажмите «Поставить». Ставка 0 — пропуск раунда.
+        </p>
+        <div class="betting-panel__row">
+          <span class="betting-panel__balance"
+            >Баланс: <strong id="myChipsDisplay">1000</strong></span
+          >
+        </div>
+        <div class="betting-panel__chips">
+          <button type="button" class="btn btn--ghost btn--chip" data-bet="50">50</button>
+          <button type="button" class="btn btn--ghost btn--chip" data-bet="100">100</button>
+          <button type="button" class="btn btn--ghost btn--chip" data-bet="200">200</button>
+        </div>
+        <div class="betting-panel__row betting-panel__row--grow">
+          <input
+            id="betInput"
+            class="input input--mono"
+            type="number"
+            min="0"
+            step="1"
+            inputmode="numeric"
+            placeholder="Сумма"
+          />
+          <button id="btnPlaceBet" class="btn btn--primary" type="button">Поставить</button>
+        </div>
+        <p id="betStatus" class="betting-panel__status muted" hidden></p>
+      </section>
+
       <section class="felt">
         <div class="dealer-block">
           <div class="block-title">
@@ -51,7 +81,10 @@
 
       <section class="controls">
         <div class="controls__host" id="hostControls" hidden>
-          <button id="btnStart" class="btn btn--primary" type="button" hidden>
+          <button id="btnStartBetting" class="btn btn--primary" type="button" hidden>
+            Начать приём ставок
+          </button>
+          <button id="btnStartGame" class="btn btn--primary" type="button" hidden>
             Начать игру
           </button>
           <button id="btnNewRound" class="btn btn--secondary" type="button" hidden>

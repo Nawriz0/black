@@ -9,6 +9,7 @@ const {
 } = require('./blackjack');
 
 const MAX_PLAYERS = 6;
+const STARTING_CHIPS = 1000;
 
 function generatePlayerId() {
   return crypto.randomBytes(16).toString('hex');
@@ -36,6 +37,11 @@ function makePlayer(name, socketId, isHost) {
     name: String(name || '').trim(),
     socketId: socketId || null,
     isHost: !!isHost,
+    chips: STARTING_CHIPS,
+    roundBet: 0,
+    betReady: false,
+    roundStake: 0,
+    lastRoundDelta: null,
     hand: [],
     bust: false,
     naturalBlackjack: false,
@@ -43,15 +49,48 @@ function makePlayer(name, socketId, isHost) {
   };
 }
 
+function allPlayersBetReady(room) {
+  return room.players.length > 0 && room.players.every((p) => p.betReady);
+}
+
+function atLeastOneBet(room) {
+  return room.players.some((p) => p.roundBet > 0);
+}
+
+function applyChipPayouts(room) {
+  for (const p of room.players) {
+    if (p.roundStake === 0) {
+      p.lastRoundDelta = null;
+      continue;
+    }
+    const bet = p.roundStake;
+    const before = p.chips;
+    const r = p.roundResult;
+    if (r === 'blackjack') {
+      p.chips += Math.floor(bet * 2.5);
+    } else if (r === 'win') {
+      p.chips += bet * 2;
+    } else if (r === 'push') {
+      p.chips += bet;
+    }
+    p.lastRoundDelta = p.chips - before;
+    p.roundStake = 0;
+  }
+}
+
 function settleDealerBlackjackRound(room) {
   room.dealerHoleRevealed = true;
   for (const p of room.players) {
+    if (p.roundStake === 0) {
+      continue;
+    }
     if (isNaturalBlackjack(p.hand)) {
       p.roundResult = 'push';
     } else {
       p.roundResult = 'lose';
     }
   }
+  applyChipPayouts(room);
 }
 
 function dealerPlayAndSettle(room) {
@@ -60,6 +99,9 @@ function dealerPlayAndSettle(room) {
     room.dealerHand.push(drawCard(room));
   }
   for (const p of room.players) {
+    if (p.roundStake === 0) {
+      continue;
+    }
     if (p.naturalBlackjack) {
       if (isNaturalBlackjack(room.dealerHand)) {
         p.roundResult = 'push';
@@ -79,9 +121,16 @@ function dealerPlayAndSettle(room) {
       p.roundResult = cmp;
     }
   }
+  applyChipPayouts(room);
 }
 
 function startRound(room) {
+  const participants = room.players.filter((p) => p.roundStake > 0);
+  if (participants.length === 0) {
+    room.phase = 'round_end';
+    return { dealerTurn: false };
+  }
+
   room.deck = new Deck();
   room.dealerHand = [];
   room.dealerHoleRevealed = false;
@@ -97,8 +146,8 @@ function startRound(room) {
   }
 
   for (let r = 0; r < 2; r++) {
-    for (let i = 0; i < room.players.length; i++) {
-      room.players[i].hand.push(drawCard(room));
+    for (let i = 0; i < participants.length; i++) {
+      participants[i].hand.push(drawCard(room));
     }
     room.dealerHand.push(drawCard(room));
   }
@@ -109,13 +158,13 @@ function startRound(room) {
     return { dealerTurn: true };
   }
 
-  for (const p of room.players) {
+  for (const p of participants) {
     if (isNaturalBlackjack(p.hand)) {
       p.naturalBlackjack = true;
     }
   }
 
-  const needAction = room.players.filter((p) => !p.naturalBlackjack);
+  const needAction = participants.filter((p) => !p.naturalBlackjack);
   if (needAction.length === 0) {
     dealerPlayAndSettle(room);
     room.phase = 'round_end';
@@ -165,6 +214,26 @@ function removePlayerFromTurnQueue(room, playerId) {
     room.turnIndex -= 1;
   }
   return null;
+}
+
+function enterBettingPhase(room) {
+  room.phase = 'betting';
+  room.deck = null;
+  room.dealerHand = [];
+  room.dealerHoleRevealed = false;
+  room.turnQueue = [];
+  room.turnIndex = 0;
+  room.activePlayerId = null;
+  for (const p of room.players) {
+    p.roundBet = 0;
+    p.betReady = false;
+    p.roundStake = 0;
+    p.hand = [];
+    p.bust = false;
+    p.naturalBlackjack = false;
+    p.roundResult = null;
+    p.lastRoundDelta = null;
+  }
 }
 
 class RoomManager {
@@ -315,6 +384,56 @@ class RoomManager {
     return { ok: true, roomRemoved: false, roomCode: code, advance: adv };
   }
 
+  startBetting(roomCode, socketId) {
+    const code = String(roomCode || '').trim().toUpperCase();
+    const room = this.rooms.get(code);
+    if (!room) {
+      return { ok: false, error: 'Комната не найдена' };
+    }
+    const player = room.players.find((p) => p.socketId === socketId);
+    if (!player) {
+      return { ok: false, error: 'Игрок не найден' };
+    }
+    if (!player.isHost) {
+      return { ok: false, error: 'Только хост может начать приём ставок' };
+    }
+    if (room.phase !== 'lobby' && room.phase !== 'round_end') {
+      return { ok: false, error: 'Сейчас нельзя начать ставки' };
+    }
+    enterBettingPhase(room);
+    return { ok: true };
+  }
+
+  placeBet(roomCode, socketId, rawAmount) {
+    const code = String(roomCode || '').trim().toUpperCase();
+    const room = this.rooms.get(code);
+    if (!room) {
+      return { ok: false, error: 'Комната не найдена' };
+    }
+    if (room.phase !== 'betting') {
+      return { ok: false, error: 'Сейчас не фаза ставок' };
+    }
+    const player = room.players.find((p) => p.socketId === socketId);
+    if (!player) {
+      return { ok: false, error: 'Игрок не найден' };
+    }
+    const n = Number(rawAmount);
+    if (!Number.isFinite(n)) {
+      return { ok: false, error: 'Некорректная ставка' };
+    }
+    const amount = Math.floor(n);
+    if (amount < 0) {
+      return { ok: false, error: 'Некорректная ставка' };
+    }
+    if (amount > player.chips) {
+      return { ok: false, error: 'Недостаточно фишек' };
+    }
+    player.roundBet = amount;
+    player.betReady = true;
+    const allReady = allPlayersBetReady(room);
+    return { ok: true, allBetsPlaced: allReady };
+  }
+
   startGame(roomCode, socketId) {
     const code = String(roomCode || '').trim().toUpperCase();
     const room = this.rooms.get(code);
@@ -328,11 +447,24 @@ class RoomManager {
     if (!player.isHost) {
       return { ok: false, error: 'Только хост может начать игру' };
     }
-    if (room.phase !== 'lobby') {
-      return { ok: false, error: 'Раунд уже идёт' };
+    if (room.phase !== 'betting') {
+      return { ok: false, error: 'Сначала нужна фаза ставок' };
     }
-    if (room.players.length < 1) {
-      return { ok: false, error: 'Нет игроков' };
+    if (!allPlayersBetReady(room)) {
+      return { ok: false, error: 'Не все игроки сделали ставку' };
+    }
+    if (!atLeastOneBet(room)) {
+      return { ok: false, error: 'Нужна хотя бы одна ставка больше 0' };
+    }
+    for (const p of room.players) {
+      if (p.roundBet > 0) {
+        p.chips -= p.roundBet;
+        p.roundStake = p.roundBet;
+      } else {
+        p.roundStake = 0;
+      }
+      p.roundBet = 0;
+      p.betReady = false;
     }
     const sr = startRound(room);
     return {
@@ -354,6 +486,9 @@ class RoomManager {
     const player = room.players.find((p) => p.socketId === socketId);
     if (!player) {
       return { ok: false, error: 'Игрок не найден' };
+    }
+    if (player.roundStake === 0) {
+      return { ok: false, error: 'Вы не в этом раунде' };
     }
     if (room.activePlayerId !== player.id) {
       return { ok: false, error: 'Сейчас не ваш ход' };
@@ -385,6 +520,9 @@ class RoomManager {
     if (!player) {
       return { ok: false, error: 'Игрок не найден' };
     }
+    if (player.roundStake === 0) {
+      return { ok: false, error: 'Вы не в этом раунде' };
+    }
     if (room.activePlayerId !== player.id) {
       return { ok: false, error: 'Сейчас не ваш ход' };
     }
@@ -408,12 +546,8 @@ class RoomManager {
     if (room.phase !== 'round_end') {
       return { ok: false, error: 'Раунд ещё не завершён' };
     }
-    const sr = startRound(room);
-    return {
-      ok: true,
-      endedImmediately: room.phase === 'round_end',
-      dealerTurn: !!sr.dealerTurn,
-    };
+    enterBettingPhase(room);
+    return { ok: true };
   }
 
   getPublicState(roomCode) {
@@ -443,11 +577,18 @@ class RoomManager {
 
     const players = room.players.map((p) => {
       const hv = handValue(p.hand);
+      const inRound = p.roundStake > 0;
       return {
         id: p.id,
         name: p.name,
         isHost: p.isHost,
         online: p.socketId != null,
+        chips: p.chips,
+        roundBet: p.roundBet,
+        betReady: p.betReady,
+        roundStake: p.roundStake,
+        inRound,
+        lastRoundDelta: p.lastRoundDelta,
         hand: p.hand.map((c) => ({ suit: c.suit, rank: c.rank })),
         value: hv.total,
         bust: p.bust,
@@ -460,6 +601,11 @@ class RoomManager {
       code: room.code,
       phase: room.phase,
       hostId: room.players[0] ? room.players[0].id : null,
+      bettingPhase: room.phase === 'betting',
+      allBetsPlaced: room.phase === 'betting' ? allPlayersBetReady(room) : false,
+      canStartDeal:
+        room.phase === 'betting' && allPlayersBetReady(room) && atLeastOneBet(room),
+      startingChips: STARTING_CHIPS,
       players,
       dealer: {
         cards: dealerCards,
@@ -481,6 +627,7 @@ class RoomManager {
       results: room.players.map((p) => ({
         playerId: p.id,
         outcome: p.roundResult,
+        chipsDelta: p.lastRoundDelta,
       })),
     };
   }
@@ -489,4 +636,5 @@ class RoomManager {
 module.exports = {
   RoomManager,
   MAX_PLAYERS,
+  STARTING_CHIPS,
 };

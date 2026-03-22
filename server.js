@@ -28,6 +28,9 @@ function pushState(roomCode) {
   const state = roomManager.getPublicState(code);
   if (state) {
     io.to(code).emit('room-state-update', state);
+    io.to(code).emit('update-chips', {
+      players: state.players.map((p) => ({ id: p.id, chips: p.chips })),
+    });
   }
 }
 
@@ -120,6 +123,32 @@ io.on('connection', (socket) => {
       io.to(res.roomCode).emit('next-turn', { activePlayerId: st.activePlayerId });
     }
     pushState(res.roomCode);
+  });
+
+  socket.on('start-betting', (payload) => {
+    const roomCode = payload && payload.roomCode;
+    const code = String(roomCode || '').trim().toUpperCase();
+    const res = roomManager.startBetting(roomCode, socket.id);
+    if (!res.ok) {
+      socket.emit('game-error', { message: res.error });
+      return;
+    }
+    pushState(code);
+  });
+
+  socket.on('place-bet', (payload) => {
+    const roomCode = payload && payload.roomCode;
+    const amount = payload && payload.amount;
+    const code = String(roomCode || '').trim().toUpperCase();
+    const res = roomManager.placeBet(roomCode, socket.id, amount);
+    if (!res.ok) {
+      socket.emit('game-error', { message: res.error });
+      return;
+    }
+    if (res.allBetsPlaced) {
+      io.to(code).emit('all-bets-placed', { roomCode: code });
+    }
+    pushState(code);
   });
 
   socket.on('start-game', (payload) => {
